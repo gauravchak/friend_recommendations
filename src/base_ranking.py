@@ -6,6 +6,7 @@ import itertools
 
 
 class PositionalEncoding(nn.Module):
+    """For positional encoding in the friending sequence encoder"""
     def __init__(self, d_model, max_len=5000):
         super().__init__()
         position = torch.arange(max_len).unsqueeze(1)
@@ -20,6 +21,9 @@ class PositionalEncoding(nn.Module):
 
 
 class ComplexTimeScaling(nn.Module):
+    """We could encoder time with a simple nn.Linear(1, 1, bias=false)
+    multiplier but this is to allow us to find more complex functions
+    of timegap."""
     def __init__(self, hidden_dim=64):
         super().__init__()
         self.mlp = nn.Sequential(
@@ -36,6 +40,9 @@ class ComplexTimeScaling(nn.Module):
 
 
 class TimeScaledAttention(nn.Module):
+    """Only addition to normal self attention is to multiply with
+    a score comping from the TimeScaling module. This will independently
+    learn recency."""
     def __init__(self, dim):
         super().__init__()
         self.query = nn.Linear(dim, dim)
@@ -58,6 +65,7 @@ class TimeScaledAttention(nn.Module):
 
 
 class CrossLayer(nn.Module):
+    """Seemingly needed in DCN"""
     def __init__(self, input_dim):
         super().__init__()
         self.weight = nn.Parameter(torch.randn(input_dim))
@@ -69,6 +77,7 @@ class CrossLayer(nn.Module):
 
 
 class Expert(nn.Module):
+    """For MMoE"""
     def __init__(self, input_dim, output_dim, hidden_dims):
         super().__init__()
         layers = []
@@ -88,6 +97,7 @@ class Expert(nn.Module):
 
 
 class MMoE(nn.Module):
+    """Multi gated mixture of experts"""
     def __init__(self, input_dim, num_experts, num_tasks, expert_dim, hidden_dims):
         super().__init__()
         self.num_experts = num_experts
@@ -111,8 +121,12 @@ class MMoE(nn.Module):
 
 
 class EncoderModel(nn.Module):
-    def __init__(self, user_dim, max_seq_len=5000, n_attention_layers=3, n_tasks=1, 
-                 expert_hidden_dims=[256, 128], dcn_layers=3, num_experts=4, expert_dim=64):
+    """The main module taking features and outputing task predictions."""
+    def __init__(
+        self, user_dim, max_seq_len=5000, n_attention_layers=3,
+        n_tasks=1, expert_hidden_dims=[256, 128], dcn_layers=3,
+        num_experts=4, expert_dim=64
+    ):
         super().__init__()
         self.positional_encoding = PositionalEncoding(user_dim, max_seq_len)
         
