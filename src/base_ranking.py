@@ -136,22 +136,22 @@ class EncoderModel(nn.Module):
         
         return x[:, -1, :]
     
-    def forward(self, viewer_id, viewer_follows, viewer_follow_timegap,
-                target_id, target_follows, target_follow_timegap):
-        encoded_viewer_follows = self.encode_sequence(
-            viewer_follows, viewer_follow_timegap)
-        encoded_target_follows = self.encode_sequence(
-            target_follows, target_follow_timegap)
+    def forward(self, viewer_id, viewer_friendings, viewer_friending_timegap,
+                target_id, target_friendings, target_friending_timegap):
+        encoded_viewer_friendings = self.encode_sequence(
+            viewer_friendings, viewer_friending_timegap)
+        encoded_target_friendings = self.encode_sequence(
+            target_friendings, target_friending_timegap)
         
-        projected_viewer_follows = self.final_projection(
-            encoded_viewer_follows)
-        projected_target_follows = self.final_projection(
-            encoded_target_follows)
+        projected_viewer_friendings = self.final_projection(
+            encoded_viewer_friendings)
+        projected_target_friendings = self.final_projection(
+            encoded_target_friendings)
         
         # Concatenate all features
         combined_features = torch.cat([
-            viewer_id, projected_viewer_follows,
-            target_id, projected_target_follows
+            viewer_id, projected_viewer_friendings,
+            target_id, projected_target_friendings
         ], dim=1)
         
         # Apply DCN layers
@@ -175,15 +175,15 @@ model = EncoderModel(
 
 # Generate dummy data
 viewer_id = torch.randn(batch_size, user_dim)
-viewer_follows = torch.randn(batch_size, seq_length, user_dim)
-viewer_follow_timegap = torch.randn(batch_size, seq_length)
+viewer_friendings = torch.randn(batch_size, seq_length, user_dim)
+viewer_friending_timegap = torch.randn(batch_size, seq_length)
 target_id = torch.randn(batch_size, user_dim)
-target_follows = torch.randn(batch_size, seq_length, user_dim)
-target_follow_timegap = torch.randn(batch_size, seq_length)
+target_friendings = torch.randn(batch_size, seq_length, user_dim)
+target_friending_timegap = torch.randn(batch_size, seq_length)
 
 # Forward pass
-outputs = model(viewer_id, viewer_follows, viewer_follow_timegap,
-                target_id, target_follows, target_follow_timegap)
+outputs = model(viewer_id, viewer_friendings, viewer_friending_timegap,
+                target_id, target_friendings, target_friending_timegap)
 
 for i, tensor in enumerate(outputs):
     print(f"Task {i+1} output shape:", tensor.shape)
