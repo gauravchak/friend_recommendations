@@ -1,6 +1,9 @@
 # Friend Recommendations
 
-This repository contains various versions of models aimed at predicting friending interactions on a social network. The models progress from basic implementations to more complex architectures that leverage advanced techniques such as feature interactions, time-based attention mechanisms, and multi-task learning frameworks. Each version builds upon the previous one, improving both feature encoding and architectural design.
+This repository contains various versions of models aimed at predicting friending interactions on a social network. The models progress from basic implementations to more complex architectures that leverage advanced techniques such as feature interactions, time-based attention mechanisms, and multi-task learning frameworks. Each version builds upon the previous one, improving both feature encoding and architectural design. The aim here is to have a model for friending recommendations that is as generalizable as language models or SOTA content recommenders. We also see a similar vision from MarkZ 
+
+> "Over time, I'd like to see us move towards a single, unified recommendation system that powers all of the content including things like People You May
+Know across all of our surfaces." [META Q2 ' 24 Earnings Call](https://s21.q4cdn.com/399680738/files/doc_financials/2024/q2/META-Q2-2024-Earnings-Call-Transcript.pdf)
 
 ## Model Versions
 
