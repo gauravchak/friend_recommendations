@@ -323,13 +323,13 @@ class FriendingPredictionModelV5(nn.Module):
 
     def forward(
         self,
-        viewer_id,
-        viewer_friendings,
-        viewer_friending_timegap,
-        target_id,
-        target_friendings,
-        target_friending_timegap,
-    ):
+        viewer_id: torch.Tensor,
+        viewer_friendings: torch.Tensor,
+        viewer_friending_timegap: torch.Tensor,
+        target_id: torch.Tensor,
+        target_friendings: torch.Tensor,
+        target_friending_timegap: torch.Tensor,
+    ) -> torch.Tensor:
         """
         Forward pass of the Friending Prediction Model.
 
