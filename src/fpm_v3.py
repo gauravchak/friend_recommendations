@@ -18,13 +18,13 @@ class FriendingPredictionModelV3(nn.Module):
 
     Args:
         user_dim (int): Dimension of user embeddings
-        n_tasks (int, optional): Number of tasks. Defaults to 1.
+        n_tasks (int, optional): Number of tasks.
     """
 
     def __init__(
         self,
-        user_dim,
-        n_tasks=1,
+        user_dim: int,
+        n_tasks: int,
     ):
         super().__init__()
 
