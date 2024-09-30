@@ -249,7 +249,7 @@ class MMoE(nn.Module):
         return final_outputs
 
 
-class FriendingPredictionModel(nn.Module):
+class FriendingPredictionModelV5(nn.Module):
     """
     Friending Prediction Model for multiple interaction probabilities in the
     friending space.
@@ -386,7 +386,7 @@ class FriendingPredictionModel(nn.Module):
 batch_size, seq_length, user_dim = 32, 10, 128
 n_tasks = 3
 
-model = FriendingPredictionModel(
+model = FriendingPredictionModelV5(
     user_dim=user_dim, n_tasks=n_tasks, dcn_layers=3, num_experts=4
 )
 
