@@ -60,9 +60,14 @@ class FriendingPredictionModelV2(nn.Module):
     ):
         super().__init__()
         # 10 = 4C2 + 4
+        task_arch_hidden_dim: int = 512
         self.task_arch = nn.Sequential(
-            nn.Linear(in_features=10 * user_dim, out_features=n_tasks),
+            nn.Linear(
+                in_features=10 * user_dim, out_features=task_arch_hidden_dim
+            ),
             nn.ReLU(),
+            nn.Dropout(p=0.5),  # Add dropout layer for regularization
+            nn.Linear(task_arch_hidden_dim, n_tasks),
         )
 
     def forward(
