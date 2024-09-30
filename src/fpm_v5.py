@@ -9,7 +9,15 @@ import math
 
 
 class PositionalEncoding(nn.Module):
-    """For positional encoding in the friending sequence encoder"""
+    """
+    Positional encoding for the friending sequence encoder.
+
+    This module adds positional information to the input embeddings.
+
+    Args:
+        d_model (int): The dimension of the model
+        max_len (int, optional): Maximum sequence length. Defaults to 5000.
+    """
 
     def __init__(self, d_model, max_len=5000):
         super().__init__()
@@ -23,14 +31,25 @@ class PositionalEncoding(nn.Module):
         self.register_buffer("pe", pe)
 
     def forward(self, x: torch.Tensor):
-        """Add positional encoding to the user history sequence feature"""
+        """
+        Add positional encoding to the user history sequence feature.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (seq_len, batch_size, d_model)  # noqa
+
+        Returns:
+            torch.Tensor: Output tensor with positional encoding added
+        """
         return x + self.pe[: x.size(0)]
 
 
 class ComplexTimeScaling(nn.Module):
-    """We could encoder time with a simple nn.Linear(1, 1, bias=false)
-    multiplier but this is to allow us to find more complex functions
-    of timegap."""
+    """
+    Complex time scaling module to find non-linear functions of time gaps.
+
+    Args:
+        hidden_dim (int, optional): Hidden dimension of the MLP. Defaults to 64
+    """
 
     def __init__(self, hidden_dim=64):
         super().__init__()
@@ -44,13 +63,28 @@ class ComplexTimeScaling(nn.Module):
         )
 
     def forward(self, time_gaps):
+        """
+        Apply complex time scaling to input time gaps.
+
+        Args:
+            time_gaps (torch.Tensor): Input tensor of time gaps
+
+        Returns:
+            torch.Tensor: Scaled time gaps
+        """
         return self.mlp(time_gaps.unsqueeze(-1))
 
 
 class TimeScaledAttention(nn.Module):
-    """Only addition to normal self attention is to multiply with
-    a score coming from the TimeScaling module. This will independently
-    learn recency."""
+    """
+    Time-scaled attention mechanism.
+
+    This module extends normal self-attention by multiplying attention scores
+    with a time scaling factor.
+
+    Args:
+        dim (int): Dimension of input features
+    """
 
     def __init__(self, dim):
         super().__init__()
@@ -60,6 +94,16 @@ class TimeScaledAttention(nn.Module):
         self.time_scale = ComplexTimeScaling()
 
     def forward(self, x, time_gaps):
+        """
+        Apply time-scaled attention to input features.
+
+        Args:
+            x (torch.Tensor): Input tensor of shape (batch_size, seq_len, dim)
+            time_gaps (torch.Tensor): Tensor of time gaps
+
+        Returns:
+            torch.Tensor: Output tensor after applying time-scaled attention
+        """
         q = self.query(x)
         k = self.key(x)
         v = self.value(x)
@@ -74,9 +118,11 @@ class TimeScaledAttention(nn.Module):
 
 
 class CrossLayer(nn.Module):
-    """Used in DCN
+    """
+    Cross layer used in Deep & Cross Network (DCN).
 
-    DCN layers are called with (combined_features, combined_features)
+    Args:
+        input_dim (int): Dimension of input features
     """
 
     def __init__(self, input_dim):
@@ -85,6 +131,16 @@ class CrossLayer(nn.Module):
         self.bias = nn.Parameter(torch.zeros(input_dim))
 
     def forward(self, x0, x):
+        """
+        Apply cross layer operation.
+
+        Args:
+            x0 (torch.Tensor): Initial input tensor
+            x (torch.Tensor): Current input tensor
+
+        Returns:
+            torch.Tensor: Output tensor after applying cross layer operation
+        """
         x = (
             x0 * (torch.sum(x * self.weight, dim=-1, keepdim=True) + self.bias)
             + x
@@ -93,9 +149,17 @@ class CrossLayer(nn.Module):
 
 
 class Expert(nn.Module):
-    """For MMoE"""
+    """
+    Expert network for Multi-gate Mixture-of-Experts (MMoE).
 
-    def __init__(self, input_dim, output_dim, hidden_dims):
+    Args:
+        input_dim (int): Dimension of input features
+        output_dim (int): Dimension of output features
+        hidden_dims (list): List of hidden dimensions for the expert network
+        dropout_rate (float, optional): Dropout rate. Defaults to 0.1.
+    """
+
+    def __init__(self, input_dim, output_dim, hidden_dims, dropout_rate=0.1):
         super().__init__()
         layers = []
         prev_dim = input_dim
@@ -105,6 +169,7 @@ class Expert(nn.Module):
                     nn.Linear(prev_dim, hidden_dim),
                     nn.ReLU(),
                     nn.BatchNorm1d(hidden_dim),
+                    nn.Dropout(dropout_rate),
                 ]
             )
             prev_dim = hidden_dim
@@ -112,11 +177,29 @@ class Expert(nn.Module):
         self.net = nn.Sequential(*layers)
 
     def forward(self, x):
+        """
+        Apply expert network to input features.
+
+        Args:
+            x (torch.Tensor): Input tensor
+
+        Returns:
+            torch.Tensor: Output tensor after applying expert network
+        """
         return self.net(x)
 
 
 class MMoE(nn.Module):
-    """Multi gated mixture of experts"""
+    """
+    Multi-gate Mixture-of-Experts (MMoE) module.
+
+    Args:
+        input_dim (int): Dimension of input features
+        num_experts (int): Number of experts
+        num_tasks (int): Number of tasks
+        expert_dim (int): Dimension of expert output
+        hidden_dims (list): List of hidden dimensions for expert networks
+    """
 
     def __init__(
         self, input_dim, num_experts, num_tasks, expert_dim, hidden_dims
@@ -139,6 +222,15 @@ class MMoE(nn.Module):
         )
 
     def forward(self, x):
+        """
+        Apply MMoE to input features.
+
+        Args:
+            x (torch.Tensor): Input tensor
+
+        Returns:
+            list: List of output tensors for each task
+        """
         expert_outputs = [expert(x) for expert in self.experts]
         expert_outputs = torch.stack(
             expert_outputs, dim=1
@@ -147,7 +239,7 @@ class MMoE(nn.Module):
         final_outputs = []
         for task in range(self.num_tasks):
             gate_output = F.softmax(
-                self.gates[task](x), dim=1
+                self.gates[task](x) + 1e-10, dim=1
             )  # [batch_size, num_experts]
             gated_output = torch.sum(
                 gate_output.unsqueeze(-1) * expert_outputs, dim=1
@@ -159,11 +251,23 @@ class MMoE(nn.Module):
 
 class FriendingPredictionModel(nn.Module):
     """
-    This is a common model that is tasked with predicting the probability of
-    multiple interactions in the friending space. For instance:
-    - probability of friend request
-    - probability of friend acceptance | friend request
-    - probability of messaging a friend (previously made)
+    Friending Prediction Model for multiple interaction probabilities in the
+    friending space.
+
+    This model predicts probabilities for various interactions such as:
+    - Probability of friend request
+    - Probability of friend acceptance given a friend request
+    - Probability of messaging a friend (previously made)
+
+    Args:
+        user_dim (int): Dimension of user embeddings
+        max_seq_len (int, optional): Maximum sequence length. Defaults to 5000.
+        n_attention_layers (int, optional): Number of attention layers. Defaults to 3. # noqa
+        n_tasks (int, optional): Number of tasks. Defaults to 1.
+        expert_hidden_dims (list, optional): Hidden dimensions for expert networks. Defaults to [256, 128]. # noqa
+        dcn_layers (int, optional): Number of DCN layers. Defaults to 3.
+        num_experts (int, optional): Number of experts in MMoE. Defaults to 4.
+        expert_dim (int, optional): Dimension of expert output. Defaults to 64.
     """
 
     def __init__(
@@ -184,7 +288,9 @@ class FriendingPredictionModel(nn.Module):
             [TimeScaledAttention(user_dim) for _ in range(n_attention_layers)]
         )
 
-        self.final_projection = nn.Linear(user_dim, user_dim)
+        self.final_projection = nn.Sequential(
+            nn.Linear(user_dim, user_dim), nn.ReLU()
+        )
 
         # Input dimension for DCN and MMoE is 4 * user_dim
         input_dim = 4 * user_dim
@@ -192,11 +298,22 @@ class FriendingPredictionModel(nn.Module):
         self.dcn = nn.ModuleList(
             [CrossLayer(input_dim) for _ in range(dcn_layers)]
         )
+        self.layer_norm = nn.LayerNorm(input_dim)
         self.mmoe = MMoE(
             input_dim, num_experts, n_tasks, expert_dim, expert_hidden_dims
         )
 
     def encode_sequence(self, ids, timegaps):
+        """
+        Encode a sequence of user interactions.
+
+        Args:
+            ids (torch.Tensor): Tensor of user IDs
+            timegaps (torch.Tensor): Tensor of time gaps between interactions
+
+        Returns:
+            torch.Tensor: Encoded sequence
+        """
         x = self.positional_encoding(ids)
 
         for attention_layer in self.attention_layers:
@@ -213,6 +330,20 @@ class FriendingPredictionModel(nn.Module):
         target_friendings,
         target_friending_timegap,
     ):
+        """
+        Forward pass of the Friending Prediction Model.
+
+        Args:
+            viewer_id (torch.Tensor): Tensor of viewer IDs
+            viewer_friendings (torch.Tensor): Tensor of viewer friending sequences  # noqa
+            viewer_friending_timegap (torch.Tensor): Tensor of viewer friending time gaps  # noqa
+            target_id (torch.Tensor): Tensor of target IDs
+            target_friendings (torch.Tensor): Tensor of target friending sequences  # noqa
+            target_friending_timegap (torch.Tensor): Tensor of target friending time gaps  # noqa
+
+        Returns:
+            list: List of output tensors for each task
+        """
         encoded_viewer_friendings = self.encode_sequence(
             viewer_friendings, viewer_friending_timegap
         )
@@ -241,6 +372,9 @@ class FriendingPredictionModel(nn.Module):
         # Apply DCN layers
         for dcn_layer in self.dcn:
             combined_features = dcn_layer(combined_features, combined_features)
+
+        # Apply LayerNorm
+        combined_features = self.layer_norm(combined_features)
 
         # Apply MMoE
         task_outputs = self.mmoe(combined_features)
