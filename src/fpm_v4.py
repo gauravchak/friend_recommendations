@@ -2,8 +2,189 @@
 FriendingPredictionModelV4
 """
 
+from typing import List
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
+
+
+class CrossLayer(nn.Module):
+    """
+    Cross layer used in Deep & Cross Network (DCN).
+
+    Args:
+        input_dim (int): Dimension of input features
+    """
+
+    def __init__(self, input_dim):
+        super().__init__()
+        self.weight = nn.Parameter(torch.randn(input_dim))
+        self.bias = nn.Parameter(torch.zeros(input_dim))
+
+    def forward(self, x0, x):
+        """
+        Apply cross layer operation.
+
+        Args:
+            x0 (torch.Tensor): Initial input tensor
+            x (torch.Tensor): Current input tensor
+
+        Returns:
+            torch.Tensor: Output tensor after applying cross layer operation
+        """
+        x = (
+            x0 * (torch.sum(x * self.weight, dim=-1, keepdim=True) + self.bias)
+            + x
+        )
+        return x
+
+
+class Expert(nn.Module):
+    """
+    Expert network for Multi-gate Mixture-of-Experts (MMoE).
+
+    Args:
+        input_dim (int): Dimension of input features
+        output_dim (int): Dimension of output features
+        hidden_dims (list): List of hidden dimensions for the expert network
+        dropout_rate (float, optional): Dropout rate. Defaults to 0.1.
+    """
+
+    def __init__(self, input_dim, output_dim, hidden_dims, dropout_rate=0.1):
+        super().__init__()
+        layers = []
+        prev_dim = input_dim
+        for hidden_dim in hidden_dims:
+            layers.extend(
+                [
+                    nn.Linear(prev_dim, hidden_dim),
+                    nn.ReLU(),
+                    nn.BatchNorm1d(hidden_dim),
+                    nn.Dropout(dropout_rate),
+                ]
+            )
+            prev_dim = hidden_dim
+        layers.append(nn.Linear(prev_dim, output_dim))
+        self.net = nn.Sequential(*layers)
+
+    def forward(self, x):
+        """
+        Apply expert network to input features.
+
+        Args:
+            x (torch.Tensor): Input tensor
+
+        Returns:
+            torch.Tensor: Output tensor after applying expert network
+        """
+        return self.net(x)
+
+
+class MMoE(nn.Module):
+    """
+    Multi-gate Mixture-of-Experts (MMoE) module.
+
+    Args:
+        input_dim (int): Dimension of input features
+        num_experts (int): Number of experts
+        num_tasks (int): Number of tasks
+        expert_dim (int): Dimension of expert output
+        hidden_dims (list): List of hidden dimensions for expert networks
+    """
+
+    def __init__(
+        self, input_dim, num_experts, num_tasks, expert_dim, hidden_dims
+    ):
+        super().__init__()
+        self.num_experts = num_experts
+        self.num_tasks = num_tasks
+
+        self.experts = nn.ModuleList(
+            [
+                Expert(input_dim, expert_dim, hidden_dims)
+                for _ in range(num_experts)
+            ]
+        )
+        self.gates = nn.ModuleList(
+            [nn.Linear(input_dim, num_experts) for _ in range(num_tasks)]
+        )
+        self.task_specific_layers = nn.ModuleList(
+            [nn.Linear(expert_dim, 1) for _ in range(num_tasks)]
+        )
+
+    def forward(self, x):
+        """
+        Apply MMoE to input features.
+
+        Args:
+            x (torch.Tensor): Input tensor
+
+        Returns:
+            list: List of output tensors for each task
+        """
+        expert_outputs = [expert(x) for expert in self.experts]
+        expert_outputs = torch.stack(
+            expert_outputs, dim=1
+        )  # [batch_size, num_experts, expert_dim]
+
+        final_outputs = []
+        for task in range(self.num_tasks):
+            gate_output = F.softmax(
+                self.gates[task](x) + 1e-10, dim=1
+            )  # [batch_size, num_experts]
+            gated_output = torch.sum(
+                gate_output.unsqueeze(-1) * expert_outputs, dim=1
+            )  # [batch_size, expert_dim]
+            final_outputs.append(self.task_specific_layers[task](gated_output))
+
+        return final_outputs
+
+
+class TimegapWeightedSum(nn.Module):
+    """Learns a function from timegap to a scale, and uses it to compute a
+    weighted sum of friending embeddings"""
+
+    def __init__(self, hidden_dim=32) -> None:
+        super().__init__()
+        # Define a small MLP to compute attention scores from timegaps
+        self.timegap_mlp = nn.Sequential(
+            nn.Linear(1, hidden_dim),
+            nn.ReLU(),
+            nn.Linear(hidden_dim, 1),  # Output 1 value per timegap
+        )
+
+    def forward(
+        self, friendings: torch.Tensor, timegaps: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Compute weighted sum of friending embeddings using attention scores
+        derived from timegaps.
+
+        Args:
+            friendings (torch.Tensor): Tensor of friending embeddings, shape [B, N, D]
+            timegaps (torch.Tensor): Tensor of timegaps, shape [B, N]
+
+        Returns:
+            torch.Tensor: Weighted sum of friending embeddings, shape [B, D]
+        """
+        # Add a third dimension to timegaps to match the input to MLP
+        timegaps = timegaps.unsqueeze(-1)  # [B, N, 1]
+
+        # Compute attention scores using the MLP
+        timegap_weights = self.timegap_mlp(timegaps).squeeze(-1)  # [B, N]
+
+        # Apply softmax to get normalized attention weights
+        attn_weights = F.softmax(timegap_weights, dim=1)  # [B, N]
+
+        # Compute weighted sum of friendings using attention weights
+        weighted_sum = torch.bmm(
+            friendings.transpose(1, 2),  # [B, D, N]
+            attn_weights.unsqueeze(-1),  # [B, N, 1]
+        ).squeeze(
+            -1
+        )  # [B, D]
+
+        return weighted_sum
 
 
 class FriendingPredictionModelV4(nn.Module):
@@ -19,14 +200,35 @@ class FriendingPredictionModelV4(nn.Module):
     Args:
         user_dim (int): Dimension of user embeddings
         n_tasks (int, optional): Number of tasks.
+        expert_hidden_dims (list, optional): Hidden dimensions for expert networks. Defaults to [256, 128]. # noqa
+        dcn_layers (int, optional): Number of DCN layers. Defaults to 3.
+        num_experts (int, optional): Number of experts in MMoE. Defaults to 4.
+        expert_dim (int, optional): Dimension of expert output. Defaults to 64.
     """
 
     def __init__(
         self,
         user_dim: int,
         n_tasks: int,
+        expert_hidden_dims: List[int] = [256, 128],
+        dcn_layers: int = 3,
+        num_experts: int = 4,
+        expert_dim: int = 64,
     ):
         super().__init__()
+
+        self.timegap_pooling = TimegapWeightedSum(hidden_dim=32)
+
+        # Input dimension for DCN and MMoE is 4 * user_dim
+        input_dim = 4 * user_dim
+
+        self.dcn = nn.ModuleList(
+            [CrossLayer(input_dim) for _ in range(dcn_layers)]
+        )
+        self.layer_norm = nn.LayerNorm(input_dim)
+        self.mmoe = MMoE(
+            input_dim, num_experts, n_tasks, expert_dim, expert_hidden_dims
+        )
 
     def forward(
         self,
@@ -51,13 +253,50 @@ class FriendingPredictionModelV4(nn.Module):
         Returns:
             list: List of output tensors for each task
         """
+        # We are assuming that you are transforming viewer_id,
+        # viewer_friendings, target_id, target_friendings through embedding
+        # tables and padding to produce [B, D], [B, N, D], [B, D], [B, N, D]
+
+        timegap_weighted_viewer_friendings = self.timegap_pooling(
+            viewer_friendings, viewer_friending_timegap
+        )  # [B, D]
+        timegap_weighted_target_friendings = self.timegap_pooling(
+            target_friendings, target_friending_timegap
+        )  # [B, D]
+
+        # Concatenate all features
+        combined_features = torch.cat(
+            [
+                viewer_id,
+                timegap_weighted_viewer_friendings,
+                target_id,
+                timegap_weighted_target_friendings,
+            ],
+            dim=1,
+        )
+
+        # Apply DCN layers
+        for dcn_layer in self.dcn:
+            # DCN + skip connection
+            combined_features = combined_features + dcn_layer(
+                combined_features, combined_features
+            )
+
+        # Apply LayerNorm
+        combined_features = self.layer_norm(combined_features)
+
+        # Apply MMoE
+        task_logits = self.mmoe(combined_features)
+        return task_logits
 
 
 # Example usage
-batch_size, seq_length, user_dim = 32, 10, 128
+batch_size, seq_length, user_dim = 32, 100, 128
 n_tasks = 3
 
-model = FriendingPredictionModelV4(user_dim=user_dim, n_tasks=n_tasks)
+model = FriendingPredictionModelV4(
+    user_dim=user_dim, n_tasks=n_tasks, dcn_layers=3, num_experts=4
+)
 
 # Generate dummy data
 viewer_id = torch.randn(batch_size, user_dim)

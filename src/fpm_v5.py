@@ -371,7 +371,10 @@ class FriendingPredictionModelV5(nn.Module):
 
         # Apply DCN layers
         for dcn_layer in self.dcn:
-            combined_features = dcn_layer(combined_features, combined_features)
+            # DCN + skip connection
+            combined_features = combined_features + dcn_layer(
+                combined_features, combined_features
+            )
 
         # Apply LayerNorm
         combined_features = self.layer_norm(combined_features)
