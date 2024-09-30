@@ -54,6 +54,10 @@ class FriendingPredictionModelV1(nn.Module):
         Returns:
             list: List of output tensors for each task
         """
+        # We are assuming that you are transforming viewer_id,
+        # viewer_friendings, target_id, target_friendings through embedding
+        # tables and padding to produce [B, D], [B, N, D], [B, D], [B, N, D]
+
         mean_pooled_viewer_friendings = torch.mean(
             viewer_friendings, dim=1
         )  # mean pool viewer_friendings [B, N, D] to [B, D]
