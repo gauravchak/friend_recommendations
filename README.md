@@ -60,16 +60,13 @@ V5 is the most complex and powerful version of the model. It introduces **time s
 1. **Positional Encoding:**
    - To account for the order of user interactions, the model uses positional encoding similar to Transformer architectures. This helps encode the temporal position of interactions in the sequence.
 
-2. **Complex Time Scaling:**
-   - A time-scaling module processes the time gaps between interactions and applies a non-linear transformation to these gaps. The scaled time gaps are then used to modulate the attention mechanism.
-
-3. **Time-Scaled Attention:**
+2. **Time-Scaled Attention:**
    - The attention mechanism in V5 is extended to incorporate time scaling. The attention scores between different interaction embeddings are adjusted using time scaling, giving more weight to interactions that occur closer in time.
 
-4. **Self-Attention Layers:**
+3. **Self-Attention Layers:**
    - Multiple self-attention layers allow the model to capture complex dependencies between different user interactions, using both content-based attention and time-scaled attention.
 
-5. **Deep & Cross Network (DCN) and MMoE:**
+4. **Deep & Cross Network (DCN) and MMoE:**
    - After the time-scaled attention layers, the resulting features are processed through the same DCN and MMoE layers as in V3 and V4, combining the benefits of feature interaction modeling and multi-task learning.
 
 **Why V5?**
